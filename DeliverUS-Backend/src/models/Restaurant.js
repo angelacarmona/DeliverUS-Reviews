@@ -3,17 +3,13 @@ import moment from 'moment'
 
 const loadModel = (sequelize, DataTypes) => {
   class Restaurant extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate (models) {
       // define association here
       Restaurant.belongsTo(models.RestaurantCategory, { foreignKey: 'restaurantCategoryId', as: 'restaurantCategory' })
       Restaurant.belongsTo(models.User, { foreignKey: 'userId', as: 'user' })
       Restaurant.hasMany(models.Product, { foreignKey: 'restaurantId', as: 'products' })
       Restaurant.hasMany(models.Order, { foreignKey: 'restaurantId', as: 'orders' })
+      Restaurant.hasMany(models.Review, { foreignKey: 'restaurantId', as: 'reviews' })
     }
 
     async getAverageServiceTime () {
@@ -25,7 +21,19 @@ const loadModel = (sequelize, DataTypes) => {
         return err
       }
     }
+
+    async getAvgStars () {
+      try {
+        const reviews = await this.getReviews()
+        if (!reviews.length) return
+        const totalStars = reviews.reduce((acc, review) => acc + review.stars, 0)
+        return totalStars / reviews.length
+      } catch (err) {
+        return err
+      }
+    }
   }
+
   Restaurant.init({
     name: {
       allowNull: false,
@@ -67,6 +75,15 @@ const loadModel = (sequelize, DataTypes) => {
       allowNull: false,
       type: DataTypes.INTEGER
     },
+    avgStars: {
+      type: DataTypes.VIRTUAL,
+      get () {
+        return this.getDataValue('avgStars')
+      },
+      set (value) {
+        this.setDataValue('avgStars', value)
+      }
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE,
@@ -79,7 +96,18 @@ const loadModel = (sequelize, DataTypes) => {
     }
   }, {
     sequelize,
-    modelName: 'Restaurant'
+    modelName: 'Restaurant',
+    hooks: {
+      afterFind: async (result) => {
+        if (Array.isArray(result)) {
+          await Promise.all(result.map(async restaurant => {
+            restaurant.dataValues.avgStars = await restaurant.getAvgStars()
+          }))
+        } else if (result) {
+          result.dataValues.avgStars = await result.getAvgStars()
+        }
+      }
+    }
   })
   return Restaurant
 }
